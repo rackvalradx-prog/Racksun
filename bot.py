@@ -1,0 +1,127 @@
+import os
+import requests
+from flask import Flask
+from threading import Thread
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    KeyboardButtonRequestUsers,
+    KeyboardButtonRequestChat,
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+
+# ===== CONFIG =====
+BOT_TOKEN = os.environ.get("8055993364:AAF_XoYcZilsZAC2aQthbLp2AMnZYvgpFYQ")
+if not BOT_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set!")
+
+API_KEY = "ITACHI"
+BASE_URL = "http://api.subhxcosmo.in/api"
+
+# ===== FLASK KEEP-ALIVE =====
+flask_app = Flask("")
+
+@flask_app.route("/")
+def home():
+    print("✅ Ping received!", flush=True)
+    return "Bot is Alive!"
+
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=8000)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+
+# ===== START COMMAND =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    btn_user = KeyboardButton(
+        text="👤 User",
+        request_users=KeyboardButtonRequestUsers(request_id=1, max_quantity=1),
+    )
+    btn_group = KeyboardButton(
+        text="👥 Group",
+        request_chat=KeyboardButtonRequestChat(request_id=2, chat_is_channel=False),
+    )
+    btn_channel = KeyboardButton(
+        text="📢 Channel",
+        request_chat=KeyboardButtonRequestChat(request_id=3, chat_is_channel=True),
+    )
+    markup = ReplyKeyboardMarkup(
+        [[btn_user, btn_group, btn_channel]],
+        resize_keyboard=True,
+    )
+    welcome_msg = (
+        f"*Welcome To @racksunbot* 🖐️\n\n"
+        f"*Your ID :* `{update.message.from_user.id}`\n\n"
+        f"Send me a Telegram username or number to look up.\n"
+        f"Example: @username or 1234567890\n\n"
+        f"Or use the buttons below to get User/Group/Channel ID:"
+    )
+    await update.message.reply_text(
+        welcome_msg, reply_markup=markup, parse_mode="Markdown",
+    )
+
+# ===== USER ID HANDLER =====
+async def handle_users_shared(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.users_shared:
+        for user in update.message.users_shared.users:
+            await update.message.reply_text(
+                f"👤 *User ID:* `{user.user_id}`", parse_mode="Markdown",
+            )
+
+# ===== CHAT ID HANDLER =====
+async def handle_chat_shared(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.chat_shared:
+        await update.message.reply_text(
+            f"🆔 *Chat ID:* `{update.message.chat_shared.chat_id}`", parse_mode="Markdown",
+        )
+
+# ===== LOOKUP HANDLER =====
+async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_input = update.message.text.strip()
+    await update.message.reply_text("🔍 Searching...")
+    try:
+        params = {"key": API_KEY, "type": "tg", "term": user_input}
+        res = requests.get(BASE_URL, params=params, timeout=10)
+        data = res.json()
+        if "result" in data:
+            result = data["result"]
+        else:
+            result = data
+        not_found = False
+        if isinstance(result, dict):
+            if not result.get("success", True):
+                not_found = True
+            else:
+                fields = {k: v for k, v in result.items() if k not in ("success", "msg")}
+                if not fields:
+                    not_found = True
+                else:
+                    lines = ["📋 *Result:*\n"]
+                    for key, value in fields.items():
+                        label = key.replace("_", " ").title()
+                        lines.append(f"*{label}:* `{value}`")
+                    text = "\n".join(lines)
+        elif not result:
+            not_found = True
+        else:
+            text = f"📋 *Result:*\n`{result}`"
+        if not_found:
+            text = "❌ *Data Not Found!*\n\nNo information found for this number/username."
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error:\n{str(e)}")
+
+# ===== MAIN =====
+if __name__ == "__main__":
+    keep_alive()
+    print("✅ Flask
