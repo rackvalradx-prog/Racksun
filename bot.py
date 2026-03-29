@@ -17,7 +17,6 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ===== CONFIG =====
 BOT_TOKEN = os.environ.get("8055993364:AAF_XoYcZilsZAC2aQthbLp2AMnZYvgpFYQ")
 if not BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set!")
@@ -25,34 +24,32 @@ if not BOT_TOKEN:
 API_KEY = "ITACHI"
 BASE_URL = "http://api.subhxcosmo.in/api"
 
-# ===== FLASK KEEP-ALIVE =====
-flask_app = Flask("")
+flask_app = Flask(__name__)
 
 @flask_app.route("/")
 def home():
-    print("✅ Ping received!", flush=True)
     return "Bot is Alive!"
 
 def run_flask():
-    flask_app.run(host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    flask_app.run(host="0.0.0.0", port=port)
 
 def keep_alive():
     t = Thread(target=run_flask)
     t.daemon = True
     t.start()
 
-# ===== START COMMAND =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     btn_user = KeyboardButton(
-        text="👤 User",
+        text="User",
         request_users=KeyboardButtonRequestUsers(request_id=1, max_quantity=1),
     )
     btn_group = KeyboardButton(
-        text="👥 Group",
+        text="Group",
         request_chat=KeyboardButtonRequestChat(request_id=2, chat_is_channel=False),
     )
     btn_channel = KeyboardButton(
-        text="📢 Channel",
+        text="Channel",
         request_chat=KeyboardButtonRequestChat(request_id=3, chat_is_channel=True),
     )
     markup = ReplyKeyboardMarkup(
@@ -60,44 +57,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resize_keyboard=True,
     )
     welcome_msg = (
-        f"*Welcome To @racksunbot* 🖐️\n\n"
+        "*Welcome To @racksunbot*\n\n"
         f"*Your ID :* `{update.message.from_user.id}`\n\n"
-        f"Send me a Telegram username or number to look up.\n"
-        f"Example: @username or 1234567890\n\n"
-        f"Or use the buttons below to get User/Group/Channel ID:"
+        "Send me a Telegram username or number to look up.\n"
+        "Example: @username or 1234567890\n\n"
+        "Or use the buttons below to get User/Group/Channel ID:"
     )
     await update.message.reply_text(
-        welcome_msg, reply_markup=markup, parse_mode="Markdown",
+        welcome_msg,
+        reply_markup=markup,
+        parse_mode="Markdown",
     )
 
-# ===== USER ID HANDLER =====
 async def handle_users_shared(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.users_shared:
         for user in update.message.users_shared.users:
             await update.message.reply_text(
-                f"👤 *User ID:* `{user.user_id}`", parse_mode="Markdown",
+                f"*User ID:* `{user.user_id}`",
+                parse_mode="Markdown",
             )
 
-# ===== CHAT ID HANDLER =====
 async def handle_chat_shared(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.chat_shared:
         await update.message.reply_text(
-            f"🆔 *Chat ID:* `{update.message.chat_shared.chat_id}`", parse_mode="Markdown",
+            f"*Chat ID:* `{update.message.chat_shared.chat_id}`",
+            parse_mode="Markdown",
         )
 
-# ===== LOOKUP HANDLER =====
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text.strip()
-    await update.message.reply_text("🔍 Searching...")
+    await update.message.reply_text("Searching...")
     try:
         params = {"key": API_KEY, "type": "tg", "term": user_input}
         res = requests.get(BASE_URL, params=params, timeout=10)
         data = res.json()
+
         if "result" in data:
             result = data["result"]
         else:
             result = data
+
         not_found = False
+
         if isinstance(result, dict):
             if not result.get("success", True):
                 not_found = True
@@ -106,7 +107,7 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not fields:
                     not_found = True
                 else:
-                    lines = ["📋 *Result:*\n"]
+                    lines = ["*Result:*\n"]
                     for key, value in fields.items():
                         label = key.replace("_", " ").title()
                         lines.append(f"*{label}:* `{value}`")
@@ -114,14 +115,23 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif not result:
             not_found = True
         else:
-            text = f"📋 *Result:*\n`{result}`"
-        if not_found:
-            text = "❌ *Data Not Found!*\n\nNo information found for this number/username."
-        await update.message.reply_text(text, parse_mode="Markdown")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error:\n{str(e)}")
+            text = f"*Result:*\n`{result}`"
 
-# ===== MAIN =====
+        if not_found:
+            text = "*Data Not Found!*\n\nNo information found for this number/username."
+
+        await update.message.reply_text(text, parse_mode="Markdown")
+
+    except Exception as e:
+        await update.message.reply_text(f"Error:\n{str(e)}")
+
 if __name__ == "__main__":
     keep_alive()
-    print("✅ Flask
+    print("Flask Server Started!")
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.StatusUpdate.USERS_SHARED, handle_users_shared))
+    app.add_handler(MessageHandler(filters.StatusUpdate.CHAT_SHARED, handle_chat_shared))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lookup))
+    print("Bot is Online!")
+    app.run_polling()
